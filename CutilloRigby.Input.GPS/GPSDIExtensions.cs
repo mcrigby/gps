@@ -8,7 +8,7 @@ public static class ServoDIExtensions
     public static IServiceCollection AddGPS<T>(this IServiceCollection services)
     {
         services.AddSingleton<IGPS<T>, GPS<T>>();
-        //services.TryAddSingleton<IServoChanged, ServoChanged>();
+        services.TryAddSingleton<IGPSStatus, GPSStatus>();
 
         return services;
     }
