@@ -1,5 +1,4 @@
 using System.IO.Ports;
-using System.Text;
 using Iot.Device.Nmea0183;
 using Iot.Device.Nmea0183.Sentences;
 using Microsoft.Extensions.Logging;
@@ -40,8 +39,6 @@ public sealed class GPS : IGPS
         
         SetupLogging(logger);
     }
-
-    private string _receivedDataFragment;
 
     public void Start()
     {
