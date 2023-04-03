@@ -11,13 +11,13 @@ public sealed class GPSStatus : IGPSStatus
         DateTime = DateTimeOffset.MinValue;
 
         Location = GeographicPosition.Zero;
-        SpeedKnots = Speed.Zero;
+        SpeedOverGround = Speed.Zero;
         Bearing = Angle.Zero;
     }
 
     public DateTimeOffset DateTime { get; set; }
     public bool HasFix { get; set; }
     public IGeographicPosition Location { get; set; }
-    public Speed SpeedKnots { get; set; }
+    public Speed SpeedOverGround { get; set; }
     public Angle Bearing { get; set; }
 }

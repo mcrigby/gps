@@ -10,9 +10,13 @@ public sealed class GPS : IGPS
 {
     private readonly SerialPort _serialPort;
     private readonly IGPSStatus _gpsStatus;
+    private readonly IGPSChanged _gpsChanged;
+
+    private readonly GPSChangedEventArgs _eventArgs = new GPSChangedEventArgs();
 
     private NmeaParser? _nmeaParser;
-    public GPS(IGPSConfiguration gpsConfiguration, IGPSStatus gpsStatus, ILogger<GPS> logger)
+
+    public GPS(IGPSConfiguration gpsConfiguration, IGPSStatus gpsStatus, IGPSChanged gpsChanged, ILogger<GPS> logger)
     {
         if (gpsConfiguration == null)
             throw new ArgumentNullException(nameof (gpsConfiguration));
@@ -23,8 +27,7 @@ public sealed class GPS : IGPS
             stopBits = StopBits.One;
 
         _gpsStatus = gpsStatus ?? throw new ArgumentNullException(nameof(gpsStatus));
-
-        _receivedDataFragment = string.Empty;
+        _gpsChanged = gpsChanged ?? throw new ArgumentNullException(nameof(gpsChanged));
 
         _serialPort = new SerialPort(
             portName: gpsConfiguration.PortName,
@@ -34,65 +37,11 @@ public sealed class GPS : IGPS
             stopBits: stopBits);
 
         _serialPort.NewLine = "\r\n";
-        //_serialPort.DataReceived += _serialPort_DataReceived;
         
         SetupLogging(logger);
     }
 
     private string _receivedDataFragment;
-
-    private void _serialPort_DataReceived(object sender, SerialDataReceivedEventArgs eventArgs)
-    {
-            byte[] _buffer;
-            int _bytesRead;
-            string _dataBuffer;
-            string[] _line;
-            
-            DateTimeOffset lastMessageTime = DateTimeOffset.UtcNow;
-
-            try
-            {
-                _buffer = new byte[_serialPort.BytesToRead];
-
-                if (_buffer.Length == 0)
-                    return;
-
-                _bytesRead = _serialPort.Read(_buffer, 0, _buffer.Length);
-                _dataBuffer = _receivedDataFragment + new string(UTF8Encoding.UTF8.GetChars(_buffer));
-
-                _line = _dataBuffer.Split('\n'); // Split in to lines. LF is removed, CR remains.
-                if (_line.Length == 0)
-                    return;
-
-                _receivedDataFragment = _line[_line.Length - 1]; // Last (incomplete) line is written back to buffer.
-
-                for (int _l = 0; _l < _line.Length - 1; _l++)
-                {
-                    var sentence = TalkerSentence.FromSentenceString(_line[_l], out _);
-                    if (sentence == null)
-                        continue;
-                    
-                    var typed = sentence.TryGetTypedValue(ref lastMessageTime);
-                    if (typed == null)
-                    {
-                        unknownSentence(sentence.Id);
-                        continue;
-                    }
-
-                    if (!(typed is RecommendedMinimumNavigationInformation rmc))
-                        continue;
-
-                    ParseRMCData(rmc);
-
-                    var fields = sentence.Fields.ToArray();
-                }
-            }
-            catch (Exception ex)
-            {
-                parserError(ex);
-                _receivedDataFragment = string.Empty;
-            }
-    }
 
     public void Start()
     {
@@ -109,9 +58,11 @@ public sealed class GPS : IGPS
             _gpsStatus.DateTime = d;
         };
         _nmeaParser.OnNewPosition += (gp, t, s) => {
-            _gpsStatus.Location = (GeographicPosition)gp;
-            _gpsStatus.Bearing = t.HasValue ? t.Value : UnitsNet.Angle.Zero;
-            _gpsStatus.SpeedKnots = s.HasValue ? s.Value : UnitsNet.Speed.Zero;
+            _eventArgs.Location = (GeographicPosition)gp;
+            _eventArgs.Bearing = t.HasValue ? t.Value : UnitsNet.Angle.Zero;
+            _eventArgs.SpeedOverGround = s.HasValue ? s.Value : UnitsNet.Speed.Zero;
+
+            _gpsChanged.Trigger(this, _eventArgs);
         };
 
         _nmeaParser.SendSentence(_nmeaParser, PMTKSentence.PMTK_API_SET_NMEA_OUTPUT_RMC);
@@ -142,7 +93,7 @@ public sealed class GPS : IGPS
         if (!_gpsStatus.HasFix) //If No Fix, exit.
         {
             _gpsStatus.Location = GeographicPosition.Zero;
-            _gpsStatus.SpeedKnots = UnitsNet.Speed.Zero;
+            _gpsStatus.SpeedOverGround = UnitsNet.Speed.Zero;
             _gpsStatus.Bearing = UnitsNet.Angle.Zero;
             
             return;
@@ -152,7 +103,7 @@ public sealed class GPS : IGPS
         _gpsStatus.Location = (GeographicPosition)rmc.Position;
 
         // Speed (in Knots)
-        _gpsStatus.SpeedKnots = rmc.SpeedOverGround;
+        _gpsStatus.SpeedOverGround = rmc.SpeedOverGround;
 
         // Course (in degrees)
         _gpsStatus.Bearing = rmc.TrackMadeGoodInDegreesTrue;
